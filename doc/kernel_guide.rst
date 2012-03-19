@@ -3,6 +3,7 @@ Guide on Compiling a Custom Kernel on Ubuntu 11.10
 
 :Author:    multiple1902 <multiple1902@gmail.com>
 :Copyright: `Creative Commons BY-NC-SA 2.0 License <http://creativecommons.org/licenses/by-nc-sa/2.0/>`_
+:GitHub:    `<https://github.com/multiple1902/xjtu_os_exp/blob/master/doc/kernel_guide.rst>`_
 
 #. Install Ubuntu 11.10 on your computer, and boot into it. Install the essential parts::
 

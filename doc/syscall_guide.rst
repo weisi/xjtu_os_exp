@@ -1,11 +1,12 @@
 Guide on Adding a System Call in Linux 3.2
 =======================================================
 
-:Authors: Weisi Dai (multiple1902) <multiple1902@gmail.com>,
-          Xiang Ming (Heavengod) <sinxcosm@sina.com>
+:Authors:   Weisi Dai (multiple1902) <multiple1902@gmail.com>,
+            Xiang Ming (Heavengod) <sinxcosm@sina.com>
 :Copyright: `Creative Commons BY-NC-SA 2.0 License <http://creativecommons.org/licenses/by-nc-sa/2.0/>`_
+:GitHub:    `<https://github.com/multiple1902/xjtu_os_exp/blob/master/doc/syscall_guide.rst>`_
 
-#. Get the source file of a vanilla Linux kernel, untar to a directory::
+#. Get the source file of a vanilla Linux kernel, uncompress to a directory::
 
     /media/store/kernel/osexp/linux-3.2.9
 
@@ -50,7 +51,7 @@ Guide on Adding a System Call in Linux 3.2
     [  222.131298] Hi world with 31416
 
 References
-==========
+----------
 
-#. Xiang Ming. (2012). God Ming's guide on Kernel Compilation and System Calls. Not Public.
+#. Xiang Ming. (2012). God Ming's guide on Kernel Compilation and System Calls. Not made public.
 #. Cory Hekimian-Williams. (2008). Adding A System Call To Linux (Fedora 9). Retrieved from http://hekimian-williams.com/?p=20
