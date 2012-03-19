@@ -16,11 +16,11 @@ Guide on Adding a System Call in Linux 3.2
         return(1);
     }
 
-#. Modify ``/arch/x86/include/asm/unistd_32.h``::
+#. Modify ``arch/x86/include/asm/unistd_32.h``::
 
     #define __NR_osexpcall  223
 
-#. Modify ``/arch/x86/kernel/syscall_table_32.S``, at the corresponding position::
+#. Modify ``arch/x86/kernel/syscall_table_32.S``, at the corresponding position::
 
     .long sys_osexpcall
 
