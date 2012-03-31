@@ -41,8 +41,8 @@ Guide on Compiling a Custom Kernel on Ubuntu 11.10
 Issues
 ------
 
-具体参考这儿： http://forum.ubuntu.org.cn/viewtopic.php?f=97&amp;t=361214&amp;p=2683254
+具体参考这儿： http://forum.ubuntu.org.cn/viewtopic.php?f=97&t=361214&p=2683254
 
-解决办法为在 make menuconfig 时不选中 Device Drivers --&gt; Staging drivers
+解决办法为在 make menuconfig 时不选中 Device Drivers --> Staging drivers
 
 ( shan.dan.feng@stu.xjtu.edu.cn )
