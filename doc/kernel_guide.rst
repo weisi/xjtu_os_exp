@@ -28,7 +28,7 @@ Guide on Compiling a Custom Kernel on Ubuntu 11.10
 
 #. Build it (assume we have 4 CPU threads here)::
 
-    make modules bzImage -j5
+    make -j5
 
 #. Install it::
 
