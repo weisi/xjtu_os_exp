@@ -1,0 +1,803 @@
+====================
+操作系统专题实验报告
+====================
+
+:Author:    Weisi Dai (multiple1902@gmail.com)
+:Date:      May 2012
+:Revision:  1
+
+内核编译与系统调用
+==================
+
+实验目的
+--------
+
+    #. 熟悉Linux源代码的目录结构, 掌握编译Linux内核的一般方法;
+    #. 了解Linux中系统调用的实现, 学会编写简单的Linux系统调用.
+
+实验内容
+--------
+
+    在 Oracle VM VirtualBox 虚拟机软件中创建一个虚拟机, 并安装 Linux 操作系统. 在虚拟机中编译内核, 并在内核中实现自定义系统调用.
+
+实验环境
+--------
+
+宿主机
+^^^^^^
+
+    * openSUSE Linux (Linux 3.1.10-1.9 --- 3.3.3-21 x86\_64)
+    * ArchLinux (Linux 3.2.7-1 --- 3.3.4-2 x86\_64)
+    * Oracle VM VirtualBox 4.1.8 OSE (build 75467) --- 4.1.14 (build 77440)
+
+虚拟机
+^^^^^^
+
+    * Arch Linux (Linux 3.2 x86)
+    * GCC
+    * openssh
+
+实验步骤
+--------
+
+安装Linux操作系统
+^^^^^^^^^^^^^^^^^
+
+创建虚拟机和安装操作系统
+########################
+
+    启动VirtualBox, 添加一台虚拟机, 名称为 ``OS_Exp``, 操作系统设置为 Arch Linux, 分配内存512MB, 创建新虚拟磁盘 (8GB). 从光盘镜像 ``archlinux-2011.08.19-core-i686.iso`` 启动.
+
+    在引导菜单中, 选择 ``Boot Arch Linux`` , 进入Arch Linux的终端. 按照提示, 执行 ``/arch/setup`` 启动Arch Linux的安装程序. 选定安装源和时区后, 进入手工分区界面. 将 8GB 硬盘空间分为一个 ext4 分区, 并挂载到 ``/`` .
+
+    只选择安装 base 分组中的包, 开始安装系统. 软件包安装完成后, 进行安装后的设置. 修改 ``/etc/rc.conf`` 的 62 行为 ``HOSTNAME="osexp"`` , 并打开 eth0 介面的 DHCP 服务. 设置 root 帐号密码后创建 initcpio 文件, 安装 grub 引导器, 结束安装过程. 在终端中执行 ``reboot`` 重启进入Arch Linux.
+
+配置虚拟机
+##########
+
+#. 安装基本服务
+
+    修改 ``/etc/pacman.d/mirrorlist``, 启用在美国的一个源. 执行 ``pacman -Sy`` 更新软件源缓存. 执行 ``pacman -S vim openssh`` 安装 vim 编辑器和 openSSH 服务器, 期间 pacman 会要求先更新其自身.
+
+#. 配置网络
+
+    在虚拟机中执行 ``pacman -S net-tools`` 安装 ``ifconfig`` 命令. 在 VirtualBox 中给虚拟机的 NAT 增加一条从宿主机的 TCP 34567 端口到虚拟机的TCP 22的端口映射.
+
+#. 启动 SSH 服务器
+
+    修改 ``/etc/ssh/sshd_config`` 文件, 允许 root 用户通过 ssh 登录. 执行 ``/etc/rc.d/sshd start`` 启动虚拟机上的 openSSH 服务器. 此时可以从宿主机访问虚拟机上的SSH服务::
+
+        [multiple1902 ~]$ ssh root@127.0.0.2 -p 34567
+        root@127.0.0.1's password:
+        Last login: Sat Feb 25 19:44:13 2012 from 10.0.2.2
+        [root@osexp ~]#
+
+#. 设置 SSHFS 文件系统
+
+    执行 ``pacman -S sshfs`` 安装 FUSE 和 sshfs 程序. 写入启动 sshfs 的脚本::
+
+        [root@osexp /]# cat > enable_sshfs
+        sshfs 10.0.2.2:/media/store/kernel/osexp /mnt
+
+编译内核
+^^^^^^^^
+
+安装用于编译的包
+################
+
+    .. code::
+
+        [root@osexp /]# pacman -S base-devel
+        :: There are 12 members in group base-devel:
+        :: Repository core
+           1) autoconf  2) automake  3) binutils  4) bison  5) fakeroot  6) flex
+           7) gcc  8) libtool  9) m4  10) make  11) patch  12) pkg-config
+
+        Enter a selection (default=all):
+        resolving dependencies...
+        looking for inter-conflicts...
+
+        Targets (21): cloog-0.17.0-1  gcc-libs-4.6.2-7  isl-0.09-1
+                      libltdl-2.4.2-3  libmpc-0.9-2  mpfr-3.1.0.p3-1  ppl-0.11.2-2
+                      rsync-3.0.9-2  abs-2.4.3-2  autoconf-2.68-2
+                      automake-1.11.3-1  binutils-2.22-4  bison-2.5-3
+                      fakeroot-1.18.2-1  flex-2.5.35-5  gcc-4.6.2-7
+                      libtool-2.4.2-3  m4-1.4.16-2  make-3.82-4  patch-2.6.1-3
+                      pkg-config-0.26-2
+
+        Total Download Size:    27.20 MiB
+        Total Installed Size:   115.49 MiB
+        Net Upgrade Size:       97.85 MiB
+
+编译内核
+########
+
+    #. 从 `<http://www.kernel.org>`_ 下载到 Linux 3.2.12 的源代码压缩包, 解压. 用 Mercurial 跟踪源代码修改::
+
+        [multiple1902 linux-3.2.12]% hg init
+        [multiple1902 linux-3.2.12]% echo syntax:glob > .hgignore
+        [multiple1902 linux-3.2.12]% cat .gitignore >> .hgignore
+        [multiple1902 linux-3.2.12]% hg add . > /dev/null
+        [multiple1902 linux-3.2.12]% hg ci -m "vanilla linux 3.2.12"
+
+    #. 取消自动设置版本号后缀::
+
+        diff -r 5da0810a54a4 scripts/setlocalversion
+        --- a/scripts/setlocalversion    Fri May 04 19:38:29 2012 +0800
+        +++ b/scripts/setlocalversion    Fri May 04 20:41:43 2012 +0800
+        @@ -9,6 +9,9 @@
+         #
+         #
+         
+        +echo "-OSEXP"
+        +exit
+        +
+         usage() {
+             echo "Usage: $0 [--save-scmversion] [srctree]" >&2
+             exit 1
+
+    #. 获取当前内核配置::
+
+        [multiple1902 ~]$ ssh root@127.0.0.2 -p 34567
+        Last login: Sat Mar 10 21:07:04 2012 from 10.0.2.2
+        [root@osexp ~]# zcat /proc/config.gz > /mnt/linux-3.2.12/.config
+
+    #. 微调内核参数::
+
+        [multiple1902 ~]$ make menuconfig
+
+    #. 启动交叉编译::
+
+        [multiple1902 linux-3.2.12]% i386
+        [multiple1902@m-laptop linux-3.2.12]$ make -j5
+
+    #. 安装内核::
+
+        [root@osexp linux-3.2.12]# make modules_install install
+
+    #. 生成对应的 initramfs::
+
+        [root@osexp mkinitcpio.d]# cat osexp.preset
+        # mkinitcpio preset file for the 'linux' package
+
+        ALL_config="/etc/mkinitcpio.conf"
+        ALL_kver="/boot/vmlinuz"
+
+        PRESETS=('default')
+
+        #default_config="/etc/mkinitcpio.conf"
+        default_image="/boot/initramfs-linux-osexp.img"
+        #default_options=""
+        [root@osexp mkinitcpio.d]# mkinitcpio -p osexp
+        ==> Building image from preset: 'default'
+          -> -k /boot/vmlinuz -c /etc/mkinitcpio.conf -g /boot/initramfs-linux-osexp.img
+        ==> Starting build: 3.2.12-OSEXP
+          -> Parsing hook: [base]
+          -> Parsing hook: [udev]
+          -> Parsing hook: [autodetect]
+          -> Parsing hook: [pata]
+          -> Parsing hook: [scsi]
+          -> Parsing hook: [sata]
+          -> Parsing hook: [filesystems]
+          -> Parsing hook: [usbinput]
+        ==> Generating module dependencies
+        ==> Creating gzip initcpio image: /boot/initramfs-linux-osexp.img
+        11365 blocks
+        ==> Image generation successful
+        [root@osexp mkinitcpio.d]#
+
+    #. 设置引导菜单::
+
+        [root@osexp ~]# sed -n /OsExp/,+3p /boot/grub/menu.lst 
+        title  Arch Linux OsExp
+        root   (hd0,0)
+        kernel /boot/vmlinuz root=/dev/sda1 ro
+        initrd /boot/initramfs-linux-osexp.img
+
+    #. 检验内核::
+
+        [multiple1902 report]$ ssh root@127.0.0.2 -p 34567
+        Last login: Sat Mar 10 22:14:47 2012 from 10.0.2.2
+        [root@osexp ~]# uname -r
+        3.2.12-OSEXP
+
+添加系统调用
+^^^^^^^^^^^^
+
+    #. 切换代码到 syscall 分支::
+
+        [multiple1902 linux-3.2.12]% hg branch syscall
+        marked working directory as branch syscall
+
+    #. 添加相应代码::
+
+        # HG changeset patch
+        # User Weisi Dai <multiple1902@gmail.com>
+        # Date 1332565183 -28800
+        # Branch syscall
+        # Node ID 28d5a8f6e76795dc8e601d1ea7879877c41038c5
+        # Parent  2ecb6924a3608ed5ca33381731d30592b94ffeb8
+        probepid
+
+        diff -r 2ecb6924a360 -r 28d5a8f6e767 arch/x86/include/asm/unistd_32.h
+        --- a/arch/x86/include/asm/unistd_32.h    Fri Mar 23 22:41:24 2012 +0800
+        +++ b/arch/x86/include/asm/unistd_32.h    Sat Mar 24 12:59:43 2012 +0800
+        @@ -228,7 +228,7 @@
+         #define __NR_madvise1        219    /* delete when C lib stub is removed */
+         #define __NR_getdents64        220
+         #define __NR_fcntl64        221
+        -/* 223 is unused */
+        +#define __NR_probepid       223
+         #define __NR_gettid        224
+         #define __NR_readahead        225
+         #define __NR_setxattr        226
+        diff -r 2ecb6924a360 -r 28d5a8f6e767 arch/x86/kernel/syscall_table_32.S
+        --- a/arch/x86/kernel/syscall_table_32.S    Fri Mar 23 22:41:24 2012 +0800
+        +++ b/arch/x86/kernel/syscall_table_32.S    Sat Mar 24 12:59:43 2012 +0800
+        @@ -222,7 +222,7 @@
+             .long sys_getdents64    /* 220 */
+             .long sys_fcntl64
+             .long sys_ni_syscall    /* reserved for TUX */
+        -    .long sys_ni_syscall
+        +    .long sys_probepid
+             .long sys_gettid
+             .long sys_readahead    /* 225 */
+             .long sys_setxattr
+        diff -r 2ecb6924a360 -r 28d5a8f6e767 kernel/sys.c
+        --- a/kernel/sys.c    Fri Mar 23 22:41:24 2012 +0800
+        +++ b/kernel/sys.c    Sat Mar 24 12:59:43 2012 +0800
+        @@ -1917,3 +1917,16 @@
+             return ret;
+         }
+         EXPORT_SYMBOL_GPL(orderly_poweroff);
+        +
+        +asmlinkage int sys_probepid(){
+        +    int i=0;
+        +    struct task_struct *p;
+        +    p=&init_task;
+        +    do{
+        +        printk("[probepid] PID = %d, Sys CPU Time = %d, User CPU Time = %d \n", 
+        +                p->pid, p->stime, p->utime);
+        +        i++;
+        +    } while ((p=next_task(p)) && (p!=&init_task));
+        +    return i;
+        +}
+        +
+
+    这个系统调用实现了在内核输出中打印所有进程的 PID , 系统 CPU 时间, 用户 CPU 时间等信息.
+
+    再次编译内核.
+
+    启动交叉编译. 在这里, 笔者比较困, 决定趁编译时休息一会, 以下命令行在编译完成后调用笔者写的 s2myself 脚本向手机上发送一条短信, 报告编译完成::
+
+        [multiple1902 linux-3.2.12]% i386
+        [multiple1902@m-laptop linux-3.2.12]$ time make bzImage modules -j5 ; \
+            s2myself "Compilation Finished"
+        real    25m38.145s
+        user    68m48.341s
+        sys     8m9.888s
+
+功能测试和运行结果
+------------------
+
+    设计执行单元测试::
+
+        [multiple1902 /t]% ssh root@127.0.0.2 -p 34567        
+        Last login: Sat Mar 24 10:01:10 2012 from 10.0.2.2
+        [root@osexp ~]# . enable_sshfs
+        multiple1902@10.0.2.2's password:
+        [root@osexp ~]# cd /mnt/test/
+        [root@osexp test]# cat syscall.c
+        #include "unistd.h"
+        #define __NR_probepid 223
+        long probepid(){
+            return syscall(__NR_probepid);
+        }
+        int main(){
+            probepid();
+            return 0;
+        }
+        [root@osexp test]# ./a.out
+        [root@osexp test]# dmesg | tail
+        [   47.239686] [probepid] PID = 644, Sys CPU Time = 0, User CPU Time = 0
+        [   47.240357] [probepid] PID = 645, Sys CPU Time = 1, User CPU Time = 0
+        [   47.241016] [probepid] PID = 646, Sys CPU Time = 0, User CPU Time = 0
+        [   47.241541] [probepid] PID = 647, Sys CPU Time = 0, User CPU Time = 0
+        [   47.242032] [probepid] PID = 648, Sys CPU Time = 0, User CPU Time = 0
+        [   47.242683] [probepid] PID = 649, Sys CPU Time = 12, User CPU Time = 0
+        [   47.244048] [probepid] PID = 651, Sys CPU Time = 3, User CPU Time = 2
+        [   47.244646] [probepid] PID = 661, Sys CPU Time = 5, User CPU Time = 2
+        [   47.245299] [probepid] PID = 662, Sys CPU Time = 0, User CPU Time = 0
+        [   47.245750] [probepid] PID = 666, Sys CPU Time = 8, User CPU Time = 0
+
+实验总结
+--------
+
+    在 Linux 3.2.12 中添加了系统调用, 并编写程序测试了它.
+
+动态模块与设备驱动
+==================
+
+实验目的
+--------
+
+    #. 熟悉编写 Linux 中系统动态模块的一般原理;
+    #. 掌握字符设备驱动的编写方法.
+
+实验内容
+--------
+
+    编写一个字符设备驱动, 并基于它实现一个聊天程序.
+
+实验思想
+--------
+
+    字符设备在文件系统中表现为一个块设备, 可以进行读写操作.
+
+实验步骤
+--------
+
+    #. 建立 module 代码分支::
+        
+        [multiple192 linux-3.2.12]% hg update
+        4 files updated, files merged, files removed, files unresolved
+        [multiple192 linux-3.2.12]% hg branch module
+        marked working directory as branch module
+        (branches are permanent and global, did you want a bookmark?)
+
+    #. 加入字符设备驱动代码.
+
+        驱动程序核心文件 ``chardev.c``::
+
+            #include <linux/kernel.h>
+            #include <linux/module.h>
+            #include <linux/fs.h>
+            #include <asm/uaccess.h>
+
+            int init_module(void);
+            void cleanup_module(void);
+            static int device_open(struct inode *, struct file *);
+            static int device_release(struct inode *, struct file *);
+            static ssize_t device_read(struct file *, char *, size_t, loff_t *);
+            static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
+
+            #define SUCCESS 0
+            #define DEVICE_NAME "chardev"
+            #define BUF_LEN 80
+            static int Major;    
+            static int Device_Open = 0;
+            static char msg[BUF_LEN];
+            static char *msg_Ptr;
+
+            static struct file_operations fops = {
+                .read = device_read,
+                .write = device_write,
+                .open = device_open,
+                .release = device_release
+            };
+
+            int init_module(void)
+            {
+                register_chrdev(222, DEVICE_NAME, &fops);
+                return SUCCESS;
+            }
+
+            void cleanup_module(void)
+            {
+                unregister_chrdev(222, DEVICE_NAME);
+            }
+
+            static int device_open(struct inode *inode, struct file *file)
+            {
+                static int counter = 0;
+
+                if (Device_Open)
+                    return -EBUSY;
+
+                Device_Open++;
+                msg_Ptr = msg;
+                try_module_get(THIS_MODULE);
+
+                return SUCCESS;
+            }
+
+            static int device_release(struct inode *inode, struct file *file)
+            {
+                Device_Open--;        
+
+                module_put(THIS_MODULE);
+
+                return 0;
+            }
+
+            static ssize_t device_read(struct file *filp,  
+                           char *buffer,
+                           size_t length,    
+                           loff_t * offset)
+            {
+                int bytes_read = 0;
+
+                if (*msg_Ptr == 0)
+                    return 0;
+
+                while (length && *msg_Ptr) {
+
+                    put_user(*(msg_Ptr++), buffer++);
+
+                    length--;
+                    bytes_read++;
+                }
+
+                return bytes_read;
+            }
+
+            static ssize_t
+            device_write(struct file *filp, const char *buff, size_t len, loff_t * off)
+            {
+                memset(&msg[0],0,sizeof(msg));
+                copy_from_user(msg, buff, len);
+                printk("[chardev] [test] %s", msg);
+                //return -EINVAL;
+                return 0;
+            }
+
+        测试聊天程序 ``chat.c``::
+
+            #define MAXLEN 80
+            #define DEVPATH "/dev/chardev"
+
+            #include <stdio.h>
+            #include <string.h>
+            #include <unistd.h>
+            #include <sys/stat.h>
+            #include <sys/types.h>
+            #include <fcntl.h>
+            #include <sys/time.h>
+
+            pid_t fork(void);
+
+            char buff[MAXLEN]={0};
+
+            int update(){
+                char buff_old[MAXLEN]={0};
+                strcpy(buff_old, buff);
+
+                int fd=0, ret=0;
+                
+                fd=open(DEVPATH, O_RDONLY);
+                ret=read(fd,buff,MAXLEN);
+                buff[ret]=0;
+                close(fd);
+
+                return strcmp(buff_old, buff);
+            }
+
+            void mysleep(){
+                int millisecs, microsecs;
+                struct timeval tv;
+
+                millisecs=200;
+                microsecs=millisecs*1000;
+
+                tv.tv_sec=microsecs/1000000;
+                tv.tv_usec=microsecs%1000000;
+
+                select(0, NULL, NULL, NULL, &tv);
+            }
+
+            int main(){
+
+                char myname[MAXLEN]={0};
+                char inputbuff[MAXLEN]={0};
+
+                printf("Please input your name: ");
+                scanf("%s", myname);
+
+                int pid;
+                if((pid=fork())==0){   
+                    while(1){
+                        if(update()){
+                            printf("%s", buff);
+                        }
+                        mysleep();
+                    }
+                }
+
+                while(1){
+                    gets(inputbuff);
+                    if(strlen(inputbuff)){
+                        char cmd[MAXLEN+MAXLEN]={0};
+                        strcpy(cmd, "bash -c 'cat > ");
+                        strcat(cmd, DEVPATH);
+                        strcat(cmd, " <<EOF 2>/dev/null \n");
+                        strcat(cmd, myname);
+                        strcat(cmd, ": ");
+                        strcat(cmd, inputbuff);
+                        strcat(cmd, "\nEOF'");
+                        system(cmd);
+                    }
+                }
+
+                printf("%s", &buff);
+
+                return 0;
+            }
+
+        这个设备占用了设备号 222, 支持写入和读出操作, 且最大长度为 80 字节.
+
+        聊天程序利用循环结构从 ``/dev/chardev`` 中拉取字符串, 若有更改则输出到屏幕上. 
+
+    #. 编写 Makefile::
+
+        obj-m += chardev.o
+
+        all:
+            rmmod chardev || true
+            make -C ../ M=$(PWD) modules  && insmod ./chardev.ko
+
+        clean:
+            make -C ../ M=$(PWD) clean
+
+        mknod:
+            mknod /dev/chardev c 222 0
+
+        unittest:
+            dmesg | tail
+            sleep 1
+            cat < dump > /dev/chardev || true
+            sleep 1
+            dmesg | tail
+            sleep 1
+            cat /dev/chardev
+
+        chat: chat.c
+            gcc -o chat chat.c
+
+        trychat:
+            ./chat || true
+            cat /dev/chardev
+
+测试功能
+--------
+    
+    #. 创建设备结点, 并读出数据. "The quick brown fox jumps over the lazy dog." 是 ``chardev`` 模块内置的初始内容::
+
+        [root@osexp chardev]# make mknod
+        [root@osexp chardev]# dd if=/dev/osexpdev bs=80 count=1
+        The quick brown god jumps over the lazy dog.
+        0+1 records in
+        0+1 records out
+        45 bytes (45 B) copied, 0.0010639 s, 42.3 kB/s
+
+    #. 在两个终端中测试执行聊天程序::
+
+        [root@osexp chardev]# ./chat
+        Please input your name: Alice
+        Heres to the crazy ones.
+        The misfits. The rebels. The troublemakers.
+        The round pegs in the square holes.
+        Bob: While some may see them as the crazy ones, we see genius.
+        Bob: Because the people who are crazy enough to think 
+        Bob:  they can change the world, are the ones who do. 
+
+
+        [root@osexp chardev]# ./chat
+        Please input your name: Bob
+        Alice: Heres to the crazy ones.
+        Alice: The misfits. The rebels. The troublemakers.
+        Alice: The round pegs in the square holes.
+        While some may see them as the crazy ones, we see genius.
+        Because the people who are crazy enough to think 
+         they can change the world, are the ones who do. 
+
+实验总结
+--------
+
+    完成了一个容量为 80 字节的字符设备的驱动, 并基于它编写了多人聊天程序.
+
+文件系统
+========
+
+实验目的
+--------
+
+    * 理解 Linux 内核模块的组织方式以及 ext4 文件系统的工作机理.
+
+实验内容
+--------
+
+    克隆 Linux 3.2.12 内核中的 ext4 文件系统.
+
+实验步骤
+--------
+
+    #. 为了创建 ext4 文件系统的代码拷贝, 进入 ``linux/fs`` 目录, 将 ``ext4`` 目录复制一份为 ``osexpext4``::
+
+        [multiple1902 fs] hg cp ext4 osexpext4 
+        copying ext4/Kconfig to osexpext4/Kconfig
+        copying ext4/Makefile to osexpext4/Makefile
+        copying ext4/acl.c to osexpext4/acl.c
+        copying ext4/acl.h to osexpext4/acl.h
+        ... ...
+        copying ext4/xattr_security.c to osexpext4/xattr_security.c
+        copying ext4/xattr_trusted.c to osexpext4/xattr_trusted.c
+        copying ext4/xattr_user.c to osexpext4/xattr_user.c
+        [multiple1902 fs] cd osexpext4
+
+    #. 将代码中的 ``ext4`` 替换为 ``osexpext4``::
+
+        [multiple1902 osexpext4] for i in `ls`; do
+        for> sed -i "s/ext4/osexpext4/g;s/EXT4/OSEXPEXT4/g" $i ;
+        for> done
+        [multiple1902 osexpext4]% for i in ext4*; do
+        for> hg mv $i $(echo $i | sed ``s/ext4/osexpext4/''); 
+        for> done
+
+    #. 设计 osexpext4 文件系统的 magic number, 写入 ``magic.h`` 文件::
+
+        diff -r be5b87a669d7 include/linux/magic.h
+        --- a/include/linux/magic.h     Thu Apr 26 21:38:46 2012 +0800
+        +++ b/include/linux/magic.h     Thu Apr 26 22:09:46 2012 +0800
+        @@ -22,6 +22,7 @@
+         #define EXT3_SUPER_MAGIC       0xEF53
+         #define XENFS_SUPER_MAGIC      0xabba1974
+         #define EXT4_SUPER_MAGIC       0xEF53
+        +#define OSEXPEXT4_SUPER_MAGIC  0x8964
+         #define BTRFS_SUPER_MAGIC      0x9123683E
+         #define NILFS_SUPER_MAGIC      0x3434
+         #define HPFS_SUPER_MAGIC       0xf995e849
+
+    #. 修改 ``fs/Makefile``, 加入 osexpext4 文件系统类型::
+
+        diff -r be5b87a669d7 fs/Makefile
+        --- a/fs/Makefile    Thu Apr 26 21:38:46 2012 +0800
+        +++ b/fs/Makefile    Thu Apr 26 22:28:24 2012 +0800
+        @@ -68,6 +68,7 @@
+         # We place ext4 after ext2 so plain ext2 root fs's are mounted using ext2
+         # unless explicitly requested by rootfstype
+         obj-$(CONFIG_EXT4_FS)        += ext4/
+        +obj-$(CONFIG_OSEXPEXT4_FS)        += osexpext4/
+         obj-$(CONFIG_JBD)        += jbd/
+         obj-$(CONFIG_JBD2)        += jbd2/
+         obj-$(CONFIG_CRAMFS)        += cramfs/
+
+    #. 选择将 osexpext4 编译为模块::
+
+        # HG changeset patch
+        # User Weisi Dai <multiple1902@gmail.com>
+        # Date 1335456748 -28800
+        # Branch fs
+        # Node ID ad690f2fde288055423d4004a77731799429848a
+        # Parent  a5737cd95b0dc6ba8aced00722615e9e5871e8e3
+        added osexpext4 to dotconfig
+
+        diff -r a5737cd95b0d -r ad690f2fde28 .config
+        --- a/.config	Fri Apr 27 00:11:30 2012 +0800
+        +++ b/.config	Fri Apr 27 00:12:28 2012 +0800
+        @@ -4811,6 +4811,10 @@
+         CONFIG_EXT4_FS_XATTR=y
+         CONFIG_EXT5_FS_POSIX_ACL=y
+         CONFIG_EXT4_FS_SECURITY=y
+        +CONFIG_OSEXPEXT4_FS=m
+        +CONFIG_OSEXPEXT4_FS_XATTR=y
+        +CONFIG_OSEXPEXT4_FS_POSIX_ACL=y
+        +CONFIG_OSEXPEXT4_FS_SECURITY=y
+         # CONFIG_EXT4_DEBUG is not set
+         CONFIG_JBD=m
+         # CONFIG_JBD_DEBUG is not set
+
+    #. 在 ``fs/Kconfig`` 中引用 ``fs/osexpext4/Kconfig``::
+
+        # HG changeset patch
+        # User Weisi Dai <multiple1902@gmail.com>
+        # Date 1335459109 -28800
+        # Branch fs
+        # Node ID 87a9b1deaa201d83db1ebf1e6c801ea921bf8e01
+        # Parent  faf2193de3546156ec282a117e1a4a8c01edf1ea
+        sourced the osexpext4 Kconfig
+
+        diff -r faf2193de354 -r 87a9b1deaa20 fs/Kconfig
+        --- a/fs/Kconfig	Fri Apr 27 00:46:50 2012 +0800
+        +++ b/fs/Kconfig	Fri Apr 27 00:51:49 2012 +0800
+        @@ -9,6 +9,7 @@
+         source "fs/ext2/Kconfig"
+         source "fs/ext3/Kconfig"
+         source "fs/ext4/Kconfig"
+        +source "fs/osexpext4/Kconfig"
+         
+         config FS_XIP
+         # execute in place
+
+    #. 受到包含文件的影响, 将 ``include/trace/events/ext4.h`` 复制为 ``include/trace/events/osexpext4.h``.
+
+    此时可以编译内核了.
+
+测试功能
+--------
+
+    在一个大小为 1MB 的文件中创建一个 osexpext4 文件系统, 查看它的十六进制结构, 并挂载这个文件系统, 向里面写入内容.
+
+    #. 创建文件::
+
+        [root@osexp ~]# dd if=/dev/zero of=myfs bs=1M count=1
+        1+0 records in
+        1+0 records out
+        1048576 bytes (1.0 MB) copied, 0.00119143 s, 880 MB/s
+
+    #. 创建文件系统::
+
+        [root@osexp ~]# mkfs.ext4 myfs
+        mke2fs 1.41.14 (22-Dec-2010)
+        myfs is not a block special device.
+        Proceed anyway? (y,n) y
+        Filesystem label=
+        OS type: Linux
+        Block size=1024 (log=0)
+        Fragment size=1024 (log=0)
+        Stride=0 blocks, Stripe width=0 blocks
+        128 inodes, 1024 blocks
+        51 blocks (4.98%) reserved for the super user
+        First data block=1
+        Maximum filesystem blocks=1048576
+        1 block group
+        8192 blocks per group, 8192 fragments per group
+        128 inodes per group
+
+        Writing inode tables: done
+
+        Filesystem too small for a journal
+        Writing superblocks and filesystem accounting information: done
+
+        This filesystem will be automatically checked every 23 mounts or
+        180 days, whichever comes first.  Use tune2fs -c or -i to override.
+
+    #. 查看超级块结构, 其中的 magic number 是 EF53H, 因此这是个 ext4 文件系统::
+
+        [root@osexp ~]# od -x myfs | head
+        0000000 0000 0000 0000 0000 0000 0000 0000 0000
+        *
+        0002000 0080 0000 0400 0000 0033 0000 03da 0000
+        0002020 0075 0000 0001 0000 0000 0000 0000 0000
+        0002040 2000 0000 2000 0000 0080 0000 0000 0000
+        0002060 86e3 4f99 0000 001b ef53 0001 0001 0000
+        0002100 86e3 4f99 4e00 00ed 0000 0000 0001 0000
+        0002120 0000 0000 000b 0000 0080 0000 0038 0000
+        0002140 0242 0000 0079 0000 fa85 b97d a6c0 3841
+        0002160 6297 38f8 a8ee 5e3e 0000 0000 0000 0000
+
+    #. 将 EF53H 替换为 osexpext4 的 magic number::
+
+        [root@osexp ~]# sed -i 's/'$(echo "\x53\xef")'/'$(echo "\x64\x89")'/' myfs
+        [root@osexp ~]# od -x myfs | head
+        0000000 0000 0000 0000 0000 0000 0000 0000 0000
+        *
+        0002000 0080 0000 0400 0000 0033 0000 03da 0000
+        0002020 0075 0000 0001 0000 0000 0000 0000 0000
+        0002040 2000 0000 2000 0000 0080 0000 0000 0000
+        0002060 7177 4f99 0000 0020 8964 0001 0001 0000
+        0002100 7177 4f99 4e00 00ed 0000 0000 0001 0000
+        0002120 0000 0000 000b 0000 0080 0000 0038 0000
+        0002140 0242 0000 0079 0000 7020 efe3 e232 ef4e
+        0002160 1886 8fd1 63eb 6914 0000 0000 0000 0000
+
+    #. 挂载 ``myfs`` 文件并尝试写入内容::
+
+        [root@osexp ~]# mount -t osexpext4 -o loop ./myfs /mnt
+        [root@osexp ~]# bash
+        [root@osexp ~]# cd /mnt
+        [root@osexp mnt]# ls
+        lost+found
+        [root@osexp mnt]# curl http://twitter.com/ > twitter_homepage 2>/dev/null
+        [root@osexp mnt]# head twitter_homepage  -n 5
+        <!DOCTYPE html>
+        <html data-nav-highlight-class-name="highlight-global-nav-home">
+          <head>
+
+            <title>Twitter</title>
+        [root@osexp mnt]# sha1sum twitter_homepage
+        1aac6156b7f90d6e5ade4b78a32925464e8ff395  twitter_homepage
+
+实验总结
+--------
+
+    成功将 ext4 文件系统克隆为 osexpext4 文件系统, 并在过程中熟悉了内核的模块组织以及文件系统操作.

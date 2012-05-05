@@ -1,0 +1,115 @@
+% Weisi Dai <multiple1902@gmail.com>
+% Package for creating a report for Experiment 
+% on Operating Systems of Dept of Computer
+% Science, Xi'an JiaoTong University. 
+% 西安交通大学计算机系2009级操作系统专题实验课实验报告格式类
+% 
+% Copyright 2012 Weisi Dai.
+% Licensed under GNU General Public License Version 3:
+%   https://www.gnu.org/copyleft/gpl.html
+% 
+% Newer versions would be available on gist:
+%   https://gist.github.com/9c4bc8ce335656c46016
+%
+% Begin your .tex file with
+%   \documentclass[11pt]{report}
+%   \RequirePackage{osexp}
+%   \renewcommand{\CLASS}{CLASS}
+%   \renewcommand{\NUMBER}{NUMBER}
+%   \renewcommand{\NAME}{NAME}
+% while organizing your document with chapters 
+% and sections and even subsections. Invoke 
+% \frontpage immediately after \begin{document}.
+
+\RequirePackage{fullpage}
+\RequirePackage{fontspec,xltxtra,xunicode}
+\RequirePackage[slantfont,boldfont]{xeCJK}
+\RequirePackage{color}
+\RequirePackage[usenames,dvipsnames,svgnames,table]{xcolor}
+\RequirePackage{listings}
+\setCJKmainfont[BoldFont=方正宋黑简体]{方正书宋简体} 
+\setCJKsansfont{方正兰亭黑简体}
+\setmonofont{Droid Sans Mono}
+\setCJKmonofont{方正兰亭黑简体}
+\RequirePackage[colorlinks, allcolors=black, pdfcreator={LaTeX}]{hyperref}
+
+\lstset{
+    basicstyle=\tt\footnotesize,
+    numbers=left,
+    stepnumber=5,
+    frame=single,
+    captionpos=b,
+    numberstyle=\color{gray},
+    backgroundcolor=\color{black!5},
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false
+}
+
+\lstnewenvironment{ccode}[1][]%
+  {\vskip .5ex \noindent\minipage{\linewidth} 
+  \lstset{language=C, title={#1}}}
+       {\endminipage}
+
+\lstnewenvironment{ccodelong}[1][]%
+  {\vskip .5ex \noindent
+  \lstset{language=C, title={#1}}}
+       {}
+
+\lstnewenvironment{console}%
+  {\vskip 1ex \noindent\minipage{\linewidth} 
+  \lstset{numbers=none}}
+       {\endminipage}
+
+\lstnewenvironment{consolelong}%
+  {\vskip 1ex \noindent
+  \lstset{numbers=none}}
+       {}
+
+\renewcommand{\@makechapterhead}[1]{%
+    \vspace*{50 pt}%
+    {\setlength{\parindent}{0pt} \raggedright \normalfont
+    \bfseries\Huge\thechapter\ #1
+    \par\nobreak\vspace{40 pt}}
+}
+\setcounter{tocdepth}{1}
+\setlength{\parindent}{2em}
+
+\renewcommand{\contentsname}{目录}
+\title{操作系统专题实验报告}
+\author{}
+\date{}
+
+\newcommand{\CLASS}{(班级)}
+\newcommand{\NUMBER}{(学号)}
+\newcommand{\NAME}{(姓名)}
+
+\newcommand{\frontpage}{
+    \pagestyle{empty}
+    \begin{center}
+        \phantom{dummy}
+        \vskip 5cm
+        \textsf{\Huge 操作系统专题实验报告}
+
+        \vskip 10cm
+
+        \large
+        \begin{tabular}{cc}
+            班级: & 计算机\CLASS{}班 \\
+            学号: & \NUMBER \\
+            姓名: & \NAME \\
+        \end{tabular}
+        \vskip 3ex
+
+        \number\year 年\number\month 月
+
+    \end{center}
+    \thispagestyle{empty}
+    \clearpage
+
+    \tableofcontents
+    \clearpage
+
+    \setcounter{page}{1}
+    \pagestyle{plain}
+}
